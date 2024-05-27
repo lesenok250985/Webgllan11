@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Animated Squares with Gradient Background</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: linear-gradient(to bottom, #1e3c72, #2a5298); /* Градиентный фон */
+        }
+        canvas { 
+            display: block; 
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+<canvas id="glcanvas"></canvas>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+    attribute vec4 a_position;
+    attribute vec3 a_color;
+    varying vec3 v_color;
+    void main() {
+        gl_Position = a_position;
+        gl_PointSize = 50.0; // Размер точек
+        v_color = a_color;
+    }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec3 v_color;
+    uniform float u_time;
+    void main() {
+        vec4 color = vec4(v_color, 1.0);
+
+        // Рассчитываем расстояние от центра многоугольника
+        float dist = distance(vec2(0.5), gl_PointCoord);
+
+        // Рассчитываем альфа-значение на основе расстояния от центра
+        float alpha = smoothstep(0.5, 0.0, dist); // Плавное переход от 1 до 0 по мере удаления от центра
+
+        // Применяем альфа-значение к цвету
+        color.a = alpha;
+
+        gl_FragColor = color;
+    }
+</script>
+<script>
+    var pointStyle = 0; 
+var uPointStyleLoc = gl.getUniformLocation(program, 'u_pointStyle'); 
+
+function setPointStyle(style) {
+    pointStyle = style;
+    gl.uniform1i(uPointStyleLoc, pointStyle); 
+}
+
+// Пример вызова функции для установки стиля
+setPointStyle(1); // Устанавливаем стиль "диск"
+</script>
+
+<script>
+    var canvas, gl, program;
+    var aPositionLoc, aColorLoc, uTimeLoc;
+    var vertexBuffer, colorBuffer;
+    var vertices, colors;
+    var useColors = true;
+    var isPaused = false;
+    var mouseX = 0, mouseY = 0;
+    var numPoints = 100;
+    var startTime = Date.now();
+
+    function main() {
+        canvas = document.getElementById('glcanvas');
+        gl = canvas.getContext('webgl');
+        if (!gl) {
+            console.error('WebGL not supported');
+            return;
+        }
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        var vertexShaderSource = document.getElementById('vertex-shader').text;
+        var fragmentShaderSource = document.getElementById('fragment-shader').text;
+
+        var vertexShader = createShader(gl.VERTEX_SHADER, vertexShaderSource);
+        var fragmentShader = createShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+        program = createProgram(vertexShader, fragmentShader);
+        gl.useProgram(program);
+
+        aPositionLoc = gl.getAttribLocation(program, 'a_position');
+        aColorLoc = gl.getAttribLocation(program, 'a_color');
+        uTimeLoc = gl.getUniformLocation(program, 'u_time');
+
+        vertices = new Float32Array(numPoints * 2);
+        colors = new Float32Array(numPoints * 3);
+        for (var i = 0; i < numPoints; i++) {
+            vertices[i * 2] = (Math.random() * 2 - 1);
+            vertices[i * 2 + 1] = (Math.random() * 2 - 1);
+            colors[i * 3] = Math.random();
+            colors[i * 3 + 1] = Math.random();
+            colors[i * 3 + 2] = Math.random();
+        }
+
+        vertexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+        gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(aPositionLoc);
+
+        colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(aColorLoc, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(aColorLoc);
+
+        // Установка красного цвета атрибута по умолчанию
+        gl.vertexAttrib3f(aColorLoc, 1, 0, 0);
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        window.addEventListener('keydown', doKey);
+        canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('click', onMouseClick);
+
+        requestAnimationFrame(render);
+    }
+
+    function createShader(type, source) {
+        var shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Error compiling shader:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+
+    function createProgram(vertexShader, fragmentShader) {
+        var program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Error linking program:', gl.getProgramInfoLog(program));
+            gl.deleteProgram(program);
+            return null;
+        }
+        return program;
+    }
+
+    function doKey(evt) {
+        var code = evt.keyCode;
+        console.log("Key pressed: " + code);
+        
+        if (code == 32) { // Пробел - пауза/возобновление анимации
+            isPaused = !isPaused;
+        } else if (code == 67) { // 'C' - Включить/выключить цвета
+            useColors = !useColors;
+            if (useColors) {
+                gl.enableVertexAttribArray(aColorLoc);
+            } else {
+                gl.disableVertexAttribArray(aColorLoc);
+                gl.vertexAttrib3f(aColorLoc, 1.0, 0.0, 0.0); // Красный цвет
+            }
+        }
+    }
+
+    function onMouseMove(evt) {
+        var rect = canvas.getBoundingClientRect();
+        mouseX = ((evt.clientX - rect.left) / canvas.width) * 2 - 1;
+        mouseY = ((canvas.height - (evt.clientY - rect.top)) / canvas.height) * 2 - 1;
+    }
+
+    function onMouseClick(evt) {
+           for (var i = 0; i < numPoints; i++) {
+        vertices[i * 2] = 0;
+        vertices[i * 2 + 1] = 0;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+}
+
+function updateForFrame() {
+    for (var i = 0; i < numPoints; i++) {
+        var dx = mouseX - vertices[i * 2];
+        var dy = mouseY - vertices[i * 2 + 1];
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0) {
+            vertices[i * 2] += dx / dist * 0.01;
+            vertices[i * 2 + 1] += dy / dist * 0.01;
+        }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+}
+
+function render() {
+    if (!isPaused) {
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        var currentTime = (Date.now() - startTime) * 0.001; // Время в секундах
+        gl.uniform1f(uTimeLoc, currentTime);
+
+        if (useColors) {
+            gl.enableVertexAttribArray(aColorLoc);
+        } else {
+            gl.disableVertexAttribArray(aColorLoc);
+            gl.vertexAttrib3f(aColorLoc, 1.0, 0.0, 0.0); // Красный цвет по умолчанию
+        }
+
+        gl.drawArrays(gl.POINTS, 0, vertices.length / 2);
+
+        updateForFrame();
+    }
+
+    requestAnimationFrame(render);
+}
+
+main();
+</script>
+</body>
+</html>
+
